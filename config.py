@@ -1,4 +1,3 @@
-
 d_model = 512  # model dims
 d_ff = 2048  # ffn dims
 num_heads = 8  # num attn heads
