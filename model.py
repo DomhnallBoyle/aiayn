@@ -38,19 +38,20 @@ class MultiHeadAttention(torch.nn.Module):
             for _ in range(config.num_heads)
         ]
 
-    def forward(self, x, attn_mask=None):
-        batch_size, num_timesteps = x.shape[:2]
+    def forward(self, Q, K, V, attn_mask=None):
+        batch_size, num_timesteps = Q.shape[:2]
 
-        Q = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_k))
-        K = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_k))
-        V = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_v))
+        # temp matrices
+        Q_all = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_k))
+        K_all = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_k))
+        V_all = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_v))
 
         for i in range(config.num_heads):
-            Q[:, i, ...] = self.linear_projs_in[i][0](x)
-            K[:, i, ...] = self.linear_projs_in[i][1](x)
-            V[:, i, ...] = self.linear_projs_in[i][2](x)
+            Q_all[:, i, ...] = self.linear_projs_in[i][0](Q)
+            K_all[:, i, ...] = self.linear_projs_in[i][1](K)
+            V_all[:, i, ...] = self.linear_projs_in[i][2](V)
     
-        x = self.sdpa(Q, K, V, attn_mask=attn_mask)  # parallel
+        x = self.sdpa(Q_all, K_all, V_all, attn_mask=attn_mask)  # parallel
         x = x.view(batch_size, num_timesteps, config.d_v * config.num_heads)  # concat from the attn heads
         x = self.linear_out(x)
         x = torch.nn.functional.dropout(x, training=True)
@@ -104,7 +105,7 @@ class EncoderLayer(torch.nn.Module):
         self.ff = PositionWiseFeedForward()
 
     def forward(self, x): 
-        x_mha = self.mha(x)
+        x_mha = self.mha(x, x, x)  # NOTE: Q == K == V in encoder layers i.e. self-attention
         x = torch.nn.functional.layer_norm(x + x_mha, [config.d_model])  # residual connection
 
         x_ff = self.ff(x)
@@ -125,14 +126,12 @@ class Encoder(torch.nn.Module):
     def forward(self, x):
         x = self.embedding_layer(x)
         x = self.pe_layer(x)
-        
-        for i, encoder_layer in enumerate(self.layers):
-            if i > 0:  # queries, keys and values come from the previous encoder layer
-                encoder_layer.mha.linear_projs_in = self.layers[i - 1].mha.linear_projs_in
-            
-            x = encoder_layer(x)  # previous encoder layer output used as input to next encoder layer
 
-        return zip(*self.layers[-1].mha.linear_projs_in)  # TODO: is K, V from last layer correct?
+        for encoder_layer in self.layers:
+            x = encoder_layer(x)
+
+        # NOTE: output here is used as K and V for decoder multi-head attention
+        return x
 
 
 class DecoderLayer(torch.nn.Module):
@@ -144,11 +143,11 @@ class DecoderLayer(torch.nn.Module):
         self.mha = MultiHeadAttention()
         self.ff = PositionWiseFeedForward()
 
-    def forward(self, x, attn_mask=None):
-        x_mmha = self.masked_mha(x, attn_mask=attn_mask)
+    def forward(self, x, K, V, attn_mask=None):
+        x_mmha = self.masked_mha(x, x, x, attn_mask=attn_mask)  # NOTE: self-attention
         x = torch.nn.functional.layer_norm(x + x_mmha, [config.d_model])
 
-        x_mha = self.mha(x)
+        x_mha = self.mha(x, K, V)  # NOTE: K, V from encoder, Q from decoder
         x = torch.nn.functional.layer_norm(x + x_mha, [config.d_model])
 
         x_ff = self.ff(x)
@@ -181,7 +180,7 @@ class Decoder(torch.nn.Module):
 
         return mask
 
-    def forward(self, x, key, value):
+    def forward(self, x, K, V):
         x = self.embedding_layer(x)
         x = self.pe_layer(x)
 
@@ -194,15 +193,8 @@ class Decoder(torch.nn.Module):
         num_timesteps = x.shape[1]
         attn_mask = self.generate_mask(length=num_timesteps)
 
-        for i, decoder_layer in enumerate(self.layers):
-            if i > 0:
-                query, _, _ = zip(*self.layers[i - 1].mha.linear_projs_in)  # query comes from previous decoder layers
-            else:
-                query, _, _ = zip(*decoder_layer.mha.linear_projs_in)
-            
-            query = list(query)
-            decoder_layer.mha.linear_projs_in = [[query[j], key[j], value[j]] for j in range(config.num_heads)]  # key, value come from encoder
-            x = decoder_layer(x, attn_mask=attn_mask)
+        for decoder_layer in self.layers:
+            x = decoder_layer(x, K, V, attn_mask=attn_mask)
 
         x = self.linear_out(x)
         x = torch.nn.functional.softmax(x, dim=-1)
@@ -219,9 +211,9 @@ class Transformer(torch.nn.Module):
         self.decoder = Decoder()
 
     def forward(self, source_x, target_x):
-        _, K, V = self.encoder(source_x)  # keys, values from encoder needed for decoder
-
-        return self.decoder(target_x, list(K), list(V))
+        x = self.encoder(source_x)  # keys, values from encoder needed for decoder
+    
+        return self.decoder(target_x, x, x)
 
 
 def main():
