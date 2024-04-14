@@ -23,11 +23,19 @@ class LanguageDataset(torch.utils.data.Dataset):
             for token in tokens:
                 self.vocab.add(token)
 
+        for token in [BOS_WORD, EOS_WORD, PAD_WORD]:
+            self.vocab.add(token)
+        
+        self.vocab = {token: i for i, token in enumerate(self.vocab)}
+
     def __len__(self):
         return len(self.sentences)
 
     def __getitem__(self, index):
-        pass
+        sentence = [self.vocab[token] for token in self.sentences[index]]
+        sentence = [self.vocab[BOS_WORD]] + sentence + [self.vocab[EOS_WORD]]
+        
+        return torch.Tensor(sentence).int()
 
     def vocab_size(self):
         return len(self.vocab)
@@ -37,13 +45,20 @@ class WMTDataset(torch.utils.data.Dataset):
 
     def __init__(self):
         self.english_dataset = LanguageDataset(path='dev/newstest2013.en', spacy_model='en_core_web_sm')
-        # self.german_dataset = LanguageDataset(path='dev/newstest2013.de', language='de')
+        self.german_dataset = LanguageDataset(path='dev/newstest2013.de', spacy_model='de')
 
-        # assert len(self.english_dataset) == len(self.german_dataset)
+        assert len(self.english_dataset) == len(self.german_dataset)
 
     def __len__(self):
         return len(self.english_dataset)
 
     def __getitem__(self, index):
-        pass
+        return self.english_dataset[index], self.german_dataset[index]
+
+
+if __name__ == '__main__':
+    dataset = WMTDataset()
+    item = dataset[0]
+    
+    print(item)
 
