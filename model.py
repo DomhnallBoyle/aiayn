@@ -116,11 +116,11 @@ class EncoderLayer(torch.nn.Module):
 
 class Encoder(torch.nn.Module):
     
-    def __init__(self):
+    def __init__(self, source_vocab_size):
         super().__init__()
 
         self.layers = [EncoderLayer() for _ in range(config.num_layers)]
-        self.embedding_layer = torch.nn.Embedding(num_embeddings=config.vocab_size, embedding_dim=config.d_model)
+        self.embedding_layer = torch.nn.Embedding(num_embeddings=source_vocab_size, embedding_dim=config.d_model)
         self.pe_layer = PositionalEncoding()
 
     def forward(self, x):
@@ -158,13 +158,13 @@ class DecoderLayer(torch.nn.Module):
 
 class Decoder(torch.nn.Module):
     
-    def __init__(self):
+    def __init__(self, target_vocab_size):
         super().__init__()
 
         self.layers = [DecoderLayer() for _ in range(config.num_layers)]
-        self.embedding_layer = torch.nn.Embedding(num_embeddings=config.vocab_size, embedding_dim=config.d_model)  # TODO: needs shared with encoder
+        self.embedding_layer = torch.nn.Embedding(num_embeddings=target_vocab_size, embedding_dim=config.d_model)  # TODO: needs shared with encoder
         self.pe_layer = PositionalEncoding()
-        self.linear_out = torch.nn.Linear(in_features=config.d_model, out_features=config.vocab_size)
+        self.linear_out = torch.nn.Linear(in_features=config.d_model, out_features=target_vocab_size)
 
     def generate_mask(self, length):
         mask = torch.triu(torch.ones((length, length))).transpose(0, 1).float()
@@ -204,11 +204,11 @@ class Decoder(torch.nn.Module):
 
 class Transformer(torch.nn.Module):
     
-    def __init__(self):
+    def __init__(self, source_vocab_size, target_vocab_size):
         super().__init__()
 
-        self.encoder = Encoder()
-        self.decoder = Decoder()
+        self.encoder = Encoder(source_vocab_size)
+        self.decoder = Decoder(target_vocab_size)
 
     def forward(self, source_x, target_x):
         x = self.encoder(source_x)  # keys, values from encoder needed for decoder
@@ -217,7 +217,7 @@ class Transformer(torch.nn.Module):
 
 
 def main():
-    transformer = Transformer()
+    transformer = Transformer(200, 200)
     
     batch_size = 4
     source_x = torch.Tensor([[1, 2, 3, 4, 5, 6, 7, 8, 9, 10] for _ in range(batch_size)]).int()
@@ -229,4 +229,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
