@@ -7,13 +7,14 @@ class CustomScheduler(torch.optim.lr_scheduler.LRScheduler):
 
     def __init__(self, optimiser):
         self.num_steps = 0
+        self.lr = None
 
         super().__init__(optimiser)
 
     def get_lr(self):
-        lr = (config.d_model ** -0.5) * min(self.num_steps ** -0.5, self.num_steps * (config.warmup_steps ** -1.5))
+        self.lr = (config.d_model ** -0.5) * min(self.num_steps ** -0.5, self.num_steps * (config.warmup_steps ** -1.5))
 
-        return [lr for _ in range(len(self.optimizer.param_groups))]
+        return [self.lr for _ in range(len(self.optimizer.param_groups))]
 
     def step(self):
         self.num_steps += 1

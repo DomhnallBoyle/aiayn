@@ -1,3 +1,5 @@
+import torch
+
 d_model = 512  # model dims
 d_ff = 2048  # ffn dims
 num_heads = 8  # num attn heads
@@ -10,3 +12,4 @@ warmup_steps = 4000
 lr_initial = 1e-3
 lr_betas = (0.9, 0.98)
 lr_eps = 1e-9
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

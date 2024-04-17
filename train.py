@@ -6,64 +6,92 @@ import config
 from collator import CustomCollator
 from dataset import WMTDataset
 from model import Transformer
+from sampler import CustomSampler
 from scheduler import CustomScheduler
 
 
 def main(args):
+
     dataset = WMTDataset()
+
     model = Transformer(
-        source_vocab_size=len(dataset.english_dataset.vocab),
-        target_vocab_size=len(dataset.german_dataset.vocab)
+        source_vocab_size=dataset.english_dataset.vocab_size(),
+        target_vocab_size=dataset.german_dataset.vocab_size()
+    ).to(config.device)
+    
+    optimiser = torch.optim.Adam(
+        model.parameters(), 
+        lr=config.lr_initial, 
+        betas=config.lr_betas, 
+        eps=config.lr_eps
     )
-    optimiser = torch.optim.Adam(model.parameters(), lr=config.lr_initial, betas=config.lr_betas, eps=config.lr_eps)
     lr_scheduler = CustomScheduler(optimiser)
     criterion = torch.nn.CrossEntropyLoss()
 
+    sampler = CustomSampler(
+        source_dataset=dataset.english_dataset, 
+        batch_size=args.batch_size
+    )
     collator = CustomCollator(
         source_vocab=dataset.english_dataset.vocab,
         target_vocab=dataset.german_dataset.vocab
     )
     train_loader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=args.batch_size,
         num_workers=args.num_workers,
-        shuffle=True,
+        batch_sampler=sampler,
         collate_fn=collator,
-        pin_memory=True,
-        drop_last=True
+        pin_memory=True
     )
 
     model.train()
     model.zero_grad()
 
+    epoch = 0
     num_steps = 0
+    running_loss = 0
     finished_training = False
 
     while not finished_training:
         for i, train_data in enumerate(train_loader):
-            source, target = train_data
-            print(source.shape, target.shape)
+            source, target, source_gt, target_gt = train_data  # batch
 
-            output = model(source, target)
-            print(output.shape)
+            output = model(source.to(config.device), target.to(config.device))  # [B, T, C]
 
-            loss = criterion(output, target)
+            # input = model prediction [B, C, T]
+            # target = label tensor [B, T], long
+            loss = criterion(output.permute(0, 2, 1), target.long())
+            loss.backward()  # accumulates the gradients from every forward pass
 
-            loss.backward()
-            optimiser.step()
+            optimiser.step()  # update weights
+            optimiser.zero_grad()  # only zero the gradients after every update
+
             lr_scheduler.step()  # adjusting lr
-            optimiser.zero_grad()
 
             num_steps += 1
             if num_steps == args.training_steps:
                 finished_training = True
                 break
 
+            running_loss += loss.item()
+
+            if num_steps % args.log_every == 0:
+                print(f'Epoch: {epoch}, Steps: {num_steps}, Av. Loss: {running_loss / args.log_every}, LR: {lr_scheduler.lr}')
+
+                # output training sample
+                print(f'Input: {source_gt[0]}\nTarget: {target_gt[0]}\nOutput: {dataset.decode(output[0])}\n')
+
+                # reset running variables
+                running_loss = 0
+
+        epoch += 1
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('batch_size', type=int)
     parser.add_argument('training_steps', type=int)
+    parser.add_argument('--log_every', type=int, default=10)
     parser.add_argument('--num_workers', type=int, default=1)
 
     main(parser.parse_args())

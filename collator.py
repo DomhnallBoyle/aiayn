@@ -10,8 +10,13 @@ class CustomCollator:
         self.target_vocab = target_vocab
 
     def __call__(self, batch):
-        source, target = zip(*batch)
-        source, target = list(source), list(target)
+        source, source_gt = zip(*[x[0] for x in batch])
+        target, target_gt = zip(*[x[1] for x in batch])
+
+        source = list(source)
+        source_gt = list(source_gt)
+        target = list(target)
+        target_gt = list(target_gt)
 
         # pad to max len in either the source or target sentences
         max_len = max(max([len(x) for x in source]), max([len(x) for x in target]))
@@ -26,4 +31,4 @@ class CustomCollator:
         source = torch.nn.utils.rnn.pad_sequence(source, batch_first=True, padding_value=self.source_vocab[dataset.PAD_WORD])
         target = torch.nn.utils.rnn.pad_sequence(target, batch_first=True, padding_value=self.target_vocab[dataset.PAD_WORD])
         
-        return source, target
+        return source, target, source_gt, target_gt

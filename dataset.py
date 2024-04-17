@@ -1,5 +1,6 @@
 import torch
 from torchtext.data import get_tokenizer
+from tqdm import tqdm
 
 BOS_WORD = '<s>'
 EOS_WORD = '</s>'
@@ -11,41 +12,63 @@ class LanguageDataset(torch.utils.data.Dataset):
     def __init__(self, path, spacy_model):
         self.path = path
         self.sentences = []
+        self.lengths = {}
         self.vocab = set()
-        self.tokeniser = get_tokenizer('spacy', language=spacy_model)
+        self.tokeniser = get_tokenizer('spacy', language=spacy_model)  # TODO: remove this w/ spacy?
     
-        with open(self.path, 'r') as f:
-            for line in f.read().splitlines():
-                tokens = self.tokeniser(line.lower())
-                self.sentences.append(tokens)
+        # TODO: save vocabs to disk
 
-        for tokens in self.sentences:
-            for token in tokens:
-                self.vocab.add(token)
+        print(f'Loading dataset: {self.path}...')
+
+        # load vocab from unique words, cache untokenised strings and sentence lengths
+        with open(self.path, 'r') as f:
+            for i, line in enumerate(tqdm(f.read().splitlines())):
+                tokens = self.tokenise(line)
+
+                for token in tokens:
+                    self.vocab.add(token)
+
+                self.sentences.append(line)
+                self.lengths[i] = len(tokens)
 
         for token in [BOS_WORD, EOS_WORD, PAD_WORD]:
             self.vocab.add(token)
-        
+
+        # create vocab and decoder lookups
         self.vocab = {token: i for i, token in enumerate(self.vocab)}
+        self.decoder = {v: k for k, v in self.vocab.items()}
 
     def __len__(self):
-        return len(self.sentences)
+        return len(self.lengths)
 
     def __getitem__(self, index):
-        sentence = [self.vocab[token] for token in self.sentences[index]]
-        sentence = [self.vocab[BOS_WORD]] + sentence + [self.vocab[EOS_WORD]]
+        sentence = self.sentences[index]
+        sentence_encoded = [self.vocab[token] for token in self.tokenise(sentence)]
+        sentence_encoded = [self.vocab[BOS_WORD]] + sentence_encoded + [self.vocab[EOS_WORD]]
         
-        return torch.Tensor(sentence).int()
+        gt = ' '.join(sentence)
+
+        return torch.Tensor(sentence_encoded).int(), gt
+
+    def tokenise(self, line):
+        return line.strip().lower().split()
 
     def vocab_size(self):
         return len(self.vocab)
+
+    def decode(self, sentence_logits):
+        # sample = [T, C] (softmax)
+        sentence_logits_argmax = torch.argmax(sentence_logits, dim=1).tolist()  # [T]
+        sentence_decoded = [self.decoder[i] for i in sentence_logits_argmax]
+
+        return ' '.join(sentence_decoded)
 
 
 class WMTDataset(torch.utils.data.Dataset):
 
     def __init__(self):
-        self.english_dataset = LanguageDataset(path='dev/newstest2013.en', spacy_model='en_core_web_sm')
-        self.german_dataset = LanguageDataset(path='dev/newstest2013.de', spacy_model='de')
+        self.english_dataset = LanguageDataset(path='train.en', spacy_model='en_core_web_sm')
+        self.german_dataset = LanguageDataset(path='train.de', spacy_model='de')
 
         assert len(self.english_dataset) == len(self.german_dataset)
 
@@ -54,6 +77,9 @@ class WMTDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         return self.english_dataset[index], self.german_dataset[index]
+
+    def decode(self, sample):
+        return self.german_dataset.decode(sample)
 
 
 if __name__ == '__main__':

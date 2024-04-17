@@ -31,9 +31,9 @@ class MultiHeadAttention(torch.nn.Module):
         self.linear_out = torch.nn.Linear(in_features=config.d_model, out_features=config.d_model)
         self.sdpa = ScaledDotProductAttention()
         self.linear_projs_in = [[
-                torch.nn.Linear(in_features=config.d_model, out_features=config.d_k),  # Q
-                torch.nn.Linear(in_features=config.d_model, out_features=config.d_k),  # K
-                torch.nn.Linear(in_features=config.d_model, out_features=config.d_v),  # V
+                torch.nn.Linear(in_features=config.d_model, out_features=config.d_k, device=config.device),  # Q
+                torch.nn.Linear(in_features=config.d_model, out_features=config.d_k, device=config.device),  # K
+                torch.nn.Linear(in_features=config.d_model, out_features=config.d_v, device=config.device),  # V
             ] 
             for _ in range(config.num_heads)
         ]
@@ -42,9 +42,9 @@ class MultiHeadAttention(torch.nn.Module):
         batch_size, num_timesteps = Q.shape[:2]
 
         # temp matrices
-        Q_all = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_k))
-        K_all = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_k))
-        V_all = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_v))
+        Q_all = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_k)).to(config.device)
+        K_all = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_k)).to(config.device)
+        V_all = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_v)).to(config.device)
 
         for i in range(config.num_heads):
             Q_all[:, i, ...] = self.linear_projs_in[i][0](Q)
@@ -82,7 +82,7 @@ class PositionalEncoding(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.pe = torch.zeros((config.max_len, config.d_model))
+        self.pe = torch.zeros((config.max_len, config.d_model)).to(config.device)
         
         for i in range(config.max_len):
             for j in range(0, config.d_model, 2):
