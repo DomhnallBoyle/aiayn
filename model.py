@@ -12,13 +12,13 @@ class ScaledDotProductAttention(torch.nn.Module):
         
         self.scale = 1 / math.sqrt(config.d_k)
 
-    def forward(self, query, key, value, attn_mask=None):
-        x = query @ key.transpose(-2, -1)  # matrix dot product, swap dims of value
+    def forward(self, Q, K, V, attn_mask=None):
+        x = Q @ K.transpose(-2, -1)  # matrix dot product, swap dims of value
         x *= self.scale  # prevents small gradients from softmax
         if attn_mask is not None:
             x += attn_mask
         x = torch.nn.functional.softmax(x, dim=-1)
-        x = x @ value
+        x = x @ V
 
         return x
 
@@ -28,15 +28,16 @@ class MultiHeadAttention(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.linear_out = torch.nn.Linear(in_features=config.d_model, out_features=config.d_model)
-        self.sdpa = ScaledDotProductAttention()
-        self.linear_projs_in = [[
-                torch.nn.Linear(in_features=config.d_model, out_features=config.d_k, device=config.device),  # Q
-                torch.nn.Linear(in_features=config.d_model, out_features=config.d_k, device=config.device),  # K
-                torch.nn.Linear(in_features=config.d_model, out_features=config.d_v, device=config.device),  # V
-            ] 
+        self.linear_projs_in = torch.nn.ModuleList([
+            torch.nn.ModuleList([
+                torch.nn.Linear(in_features=config.d_model, out_features=config.d_k),  # Q
+                torch.nn.Linear(in_features=config.d_model, out_features=config.d_k),  # K
+                torch.nn.Linear(in_features=config.d_model, out_features=config.d_v),  # V
+            ])
             for _ in range(config.num_heads)
-        ]
+        ])
+        self.sdpa = ScaledDotProductAttention()
+        self.linear_out = torch.nn.Linear(in_features=config.d_model, out_features=config.d_model)
 
     def forward(self, Q, K, V, attn_mask=None):
         batch_size, num_timesteps = Q.shape[:2]
@@ -119,7 +120,7 @@ class Encoder(torch.nn.Module):
     def __init__(self, source_vocab_size):
         super().__init__()
 
-        self.layers = [EncoderLayer() for _ in range(config.num_layers)]
+        self.layers = torch.nn.ModuleList([EncoderLayer() for _ in range(config.num_layers)])
         self.embedding_layer = torch.nn.Embedding(num_embeddings=source_vocab_size, embedding_dim=config.d_model)
         self.pe_layer = PositionalEncoding()
 
@@ -161,7 +162,7 @@ class Decoder(torch.nn.Module):
     def __init__(self, target_vocab_size):
         super().__init__()
 
-        self.layers = [DecoderLayer() for _ in range(config.num_layers)]
+        self.layers = torch.nn.ModuleList([DecoderLayer() for _ in range(config.num_layers)])
         self.embedding_layer = torch.nn.Embedding(num_embeddings=target_vocab_size, embedding_dim=config.d_model)  # TODO: needs shared with encoder
         self.pe_layer = PositionalEncoding()
         self.linear_out = torch.nn.Linear(in_features=config.d_model, out_features=target_vocab_size)
@@ -191,7 +192,7 @@ class Decoder(torch.nn.Module):
         # the encoder-decoder attention layer creates it's queries matrix from the layer below it, K, V come from the encoder stack
 
         num_timesteps = x.shape[1]
-        attn_mask = self.generate_mask(length=num_timesteps)
+        attn_mask = self.generate_mask(length=num_timesteps).to(config.device)
 
         for decoder_layer in self.layers:
             x = decoder_layer(x, K, V, attn_mask=attn_mask)
@@ -214,16 +215,22 @@ class Transformer(torch.nn.Module):
         x = self.encoder(source_x)  # keys, values from encoder needed for decoder
     
         return self.decoder(target_x, x, x)
+    
+    def num_params(self):
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
 def main():
-    transformer = Transformer(200, 200)
-    
+    model = Transformer(200, 200).to(config.device)
+
+    print(model)
+    print('Num model params:', model.num_params())
+
     batch_size = 4
     source_x = torch.Tensor([[1, 2, 3, 4, 5, 6, 7, 8, 9, 10] for _ in range(batch_size)]).int()
     target_x = source_x.clone()
 
-    output = transformer(source_x, target_x)
+    output = model(source_x.to(config.device), target_x.to(config.device))
     print(output.shape)
 
 

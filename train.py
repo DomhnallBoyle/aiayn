@@ -52,11 +52,19 @@ def main(args):
     running_loss = 0
     finished_training = False
 
+    # TODO: gradient accumulation?
+
+    print(model)
+    print('Num model params:', model.num_params())
+
     while not finished_training:
         for i, train_data in enumerate(train_loader):
             source, target, source_gt, target_gt = train_data  # batch
 
-            output = model(source.to(config.device), target.to(config.device))  # [B, T, C]
+            source = source.to(config.device)
+            target = target.to(config.device)
+
+            output = model(source, target)  # [B, T, C]
 
             # input = model prediction [B, C, T]
             # target = label tensor [B, T], long
