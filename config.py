@@ -12,4 +12,5 @@ warmup_steps = 4000
 lr_initial = 1e-3
 lr_betas = (0.9, 0.98)
 lr_eps = 1e-9
+p_drop = 0.1
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

@@ -8,6 +8,7 @@ from dataset import WMTDataset
 from model import Transformer
 from sampler import CustomSampler
 from scheduler import CustomScheduler
+from utils import get_num_params
 
 
 def main(args):
@@ -26,7 +27,10 @@ def main(args):
         eps=config.lr_eps
     )
     lr_scheduler = CustomScheduler(optimiser)
-    criterion = torch.nn.CrossEntropyLoss()
+
+    # apply label smoothing - targets become mixture of original gt and a uniform distribution
+    # restrains the largest logit from becoming much bigger than the rest
+    criterion = torch.nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
 
     sampler = CustomSampler(
         source_dataset=dataset.english_dataset, 
@@ -55,7 +59,9 @@ def main(args):
     # TODO: gradient accumulation?
 
     print(model)
-    print('Num model params:', model.num_params())
+    print('Num model params:', get_num_params(model))
+    print('Num dataset samples:', len(dataset))
+    print(get_num_params(model.encoder.embedding_layer))
 
     while not finished_training:
         for i, train_data in enumerate(train_loader):

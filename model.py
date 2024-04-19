@@ -3,6 +3,7 @@ import math
 import torch
 
 import config
+from utils import get_num_params
 
 
 class ScaledDotProductAttention(torch.nn.Module):
@@ -55,7 +56,7 @@ class MultiHeadAttention(torch.nn.Module):
         x = self.sdpa(Q_all, K_all, V_all, attn_mask=attn_mask)  # parallel
         x = x.view(batch_size, num_timesteps, config.d_v * config.num_heads)  # concat from the attn heads
         x = self.linear_out(x)
-        x = torch.nn.functional.dropout(x, training=True)
+        x = torch.nn.functional.dropout(x, p=config.p_drop, training=True)
 
         return x
 
@@ -73,7 +74,7 @@ class PositionWiseFeedForward(torch.nn.Module):
 
     def forward(self, x):
         x = self.ff(x)
-        x = torch.nn.functional.dropout(x, training=True)  # TODO: dropout prob?
+        x = torch.nn.functional.dropout(x, p=config.p_drop, training=True)
 
         return x
 
@@ -107,7 +108,7 @@ class EncoderLayer(torch.nn.Module):
 
     def forward(self, x): 
         x_mha = self.mha(x, x, x)  # NOTE: Q == K == V in encoder layers i.e. self-attention
-        x = torch.nn.functional.layer_norm(x + x_mha, [config.d_model])  # residual connection
+        x = torch.nn.functional.layer_norm(x + x_mha, [config.d_model])  # residual connection (add + norm)
 
         x_ff = self.ff(x)
         x = torch.nn.functional.layer_norm(x + x_ff, [config.d_model])
@@ -126,7 +127,9 @@ class Encoder(torch.nn.Module):
 
     def forward(self, x):
         x = self.embedding_layer(x)
+        x *= math.sqrt(config.d_model)  # "in the embedding layers, we multiply those weights by √dmodel"
         x = self.pe_layer(x)
+        x = torch.nn.functional.dropout(x, p=config.p_drop, training=True)
 
         for encoder_layer in self.layers:
             x = encoder_layer(x)
@@ -183,7 +186,9 @@ class Decoder(torch.nn.Module):
 
     def forward(self, x, K, V):
         x = self.embedding_layer(x)
+        x *= math.sqrt(config.d_model)
         x = self.pe_layer(x)
+        x = torch.nn.functional.dropout(x, p=config.p_drop, training=True)
 
         # K, V of encoder are used in encoder-decoder attention layers of decoder
         # decoding continues until special symbol is reached indicating decoder has completed output
@@ -215,16 +220,13 @@ class Transformer(torch.nn.Module):
         x = self.encoder(source_x)  # keys, values from encoder needed for decoder
     
         return self.decoder(target_x, x, x)
-    
-    def num_params(self):
-        return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
 def main():
     model = Transformer(200, 200).to(config.device)
 
     print(model)
-    print('Num model params:', model.num_params())
+    print('Num model params:', get_num_params(model))
 
     batch_size = 4
     source_x = torch.Tensor([[1, 2, 3, 4, 5, 6, 7, 8, 9, 10] for _ in range(batch_size)]).int()

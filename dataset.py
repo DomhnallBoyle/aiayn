@@ -1,11 +1,13 @@
 import torch
-from torchtext.data import get_tokenizer
 from tqdm import tqdm
 
 BOS_WORD = '<s>'
 EOS_WORD = '</s>'
 PAD_WORD = '<pad>'
 
+# TODO: redo dataset class
+#   single dataset class
+#   ensure matching English-German sentences are in corresponding vocabs (50k)
 
 class LanguageDataset(torch.utils.data.Dataset):
     
@@ -14,10 +16,7 @@ class LanguageDataset(torch.utils.data.Dataset):
         self.sentences = []
         self.lengths = {}
         self.vocab = set()
-        self.tokeniser = get_tokenizer('spacy', language=spacy_model)  # TODO: remove this w/ spacy?
     
-        # TODO: save vocabs to disk
-
         print(f'Loading dataset: {self.path}...')
 
         # load vocab from unique words, cache untokenised strings and sentence lengths
@@ -51,7 +50,7 @@ class LanguageDataset(torch.utils.data.Dataset):
         return torch.Tensor(sentence_encoded).int(), gt
 
     def tokenise(self, line):
-        return line.strip().lower().split()
+        return line.strip().lower().split(' ')
 
     def vocab_size(self):
         return len(self.vocab)
