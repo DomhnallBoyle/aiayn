@@ -45,8 +45,8 @@ class MultiHeadAttention(torch.nn.Module):
 
         # temp matrices
         Q_all = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_k)).to(config.device)
-        K_all = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_k)).to(config.device)
-        V_all = torch.zeros((batch_size, config.num_heads, num_timesteps, config.d_v)).to(config.device)
+        K_all = torch.zeros_like(Q_all)
+        V_all = torch.zeros_like(Q_all)
 
         for i in range(config.num_heads):
             Q_all[:, i, ...] = self.linear_projs_in[i][0](Q)
@@ -93,7 +93,7 @@ class PositionalEncoding(torch.nn.Module):
                 self.pe[i][j + 1] = math.cos(i * div_term)
 
     def forward(self, x):
-        x += self.pe[:x.shape[1]]
+        x += self.pe[:x.shape[1]]  # inject positional information
 
         return x
 
